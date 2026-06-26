@@ -1,0 +1,320 @@
+# ICD — Circle Rotation Command Protocol
+
+## 1. Amaç
+
+Bu ICD, Java Swing üzerinde çalışan 360 derece circle rotation uygulamasına TCP veya UDP üzerinden gönderilecek byte tabanlı komut mesajlarını tanımlar.
+
+Desteklenen komutlar:
+
+* Start Rotation
+* Stop Rotation
+* Go To Angle
+
+## 2. Transport
+
+Aynı mesaj formatı TCP ve UDP için geçerlidir.
+
+### TCP
+
+TCP stream tabanlıdır. Alıcı taraf frame başlangıcını `SYNC` alanı ile bulmalı, ardından `LEN` alanına göre payload uzunluğunu okuyup frame’i tamamlamalıdır.
+
+### UDP
+
+Her UDP datagramı bir adet tam frame içermelidir. Parçalı UDP mesaj desteklenmez.
+
+## 3. Byte Order
+
+Tüm çok byte’lı sayısal alanlar **Big Endian** gönderilir.
+
+Örnek:
+
+```text
+uint16 900 = 0x03 0x84
+```
+
+## 4. Genel Frame Formatı
+
+| Offset | Size | Alan     | Tip    | Açıklama                   |
+| -----: | ---: | -------- | ------ | -------------------------- |
+|      0 |    1 | SYNC_1   | uint8  | Sabit `0xA5`               |
+|      1 |    1 | SYNC_2   | uint8  | Sabit `0x5A`               |
+|      2 |    1 | VERSION  | uint8  | Protokol versiyonu, `0x01` |
+|      3 |    1 | MSG_TYPE | uint8  | Mesaj tipi                 |
+|      4 |    2 | SEQ      | uint16 | Mesaj sıra numarası        |
+|      6 |    1 | CMD_ID   | uint8  | Komut ID                   |
+|      7 |    2 | LEN      | uint16 | Payload byte uzunluğu      |
+|      9 |    N | PAYLOAD  | byte[] | Komuta özel veri           |
+|    9+N |    2 | CRC16    | uint16 | CRC-16/CCITT-FALSE         |
+
+## 5. CRC Tanımı
+
+CRC alanı `SYNC_1` ve `SYNC_2` hariç hesaplanır.
+
+CRC kapsamı:
+
+```text
+VERSION + MSG_TYPE + SEQ + CMD_ID + LEN + PAYLOAD
+```
+
+CRC algoritması:
+
+```text
+CRC-16/CCITT-FALSE
+Polynomial: 0x1021
+Initial:    0xFFFF
+XorOut:     0x0000
+ReflectIn:  false
+ReflectOut: false
+```
+
+## 6. Message Type Değerleri
+
+| MSG_TYPE | Ad      | Açıklama        |
+| -------: | ------- | --------------- |
+|   `0x01` | COMMAND | Komut mesajı    |
+|   `0x81` | ACK     | Başarılı cevap  |
+|   `0x82` | NACK    | Hatalı cevap    |
+|   `0x83` | STATUS  | Durum bildirimi |
+
+## 7. Command ID Değerleri
+
+| CMD_ID | Komut          | Açıklama               |
+| -----: | -------------- | ---------------------- |
+| `0x01` | START_ROTATION | Rotasyonu başlatır     |
+| `0x02` | STOP_ROTATION  | Rotasyonu durdurur     |
+| `0x03` | GO_TO_ANGLE    | Belirtilen açıya gider |
+
+## 8. Komut Payload Formatları
+
+### 8.1 START_ROTATION
+
+Rotasyonu başlatır.
+
+| Alan    | Değer    |
+| ------- | -------- |
+| CMD_ID  | `0x01`   |
+| LEN     | `0x0000` |
+| PAYLOAD | Yok      |
+
+Frame örneği:
+
+```text
+A5 5A 01 01 00 01 01 00 00 4D 8B
+```
+
+Açılım:
+
+```text
+A5 5A     SYNC
+01        VERSION
+01        COMMAND
+00 01     SEQ = 1
+01        CMD_ID = START_ROTATION
+00 00     LEN = 0
+4D 8B     CRC16
+```
+
+### 8.2 STOP_ROTATION
+
+Rotasyonu durdurur.
+
+| Alan    | Değer    |
+| ------- | -------- |
+| CMD_ID  | `0x02`   |
+| LEN     | `0x0000` |
+| PAYLOAD | Yok      |
+
+Frame örneği:
+
+```text
+A5 5A 01 01 00 02 02 00 00 8F 07
+```
+
+Açılım:
+
+```text
+A5 5A     SYNC
+01        VERSION
+01        COMMAND
+00 02     SEQ = 2
+02        CMD_ID = STOP_ROTATION
+00 00     LEN = 0
+8F 07     CRC16
+```
+
+### 8.3 GO_TO_ANGLE
+
+Belirtilen açıya gider ve rotasyonu durdurur.
+
+Açı değeri `angle_x10` olarak gönderilir.
+
+```text
+angle_x10 = derece * 10
+```
+
+Örnekler:
+
+|   Derece | angle_x10 | Hex     |
+| -------: | --------: | ------- |
+|   `0.0°` |       `0` | `00 00` |
+|  `45.0°` |     `450` | `01 C2` |
+|  `90.0°` |     `900` | `03 84` |
+| `180.0°` |    `1800` | `07 08` |
+| `270.0°` |    `2700` | `0A 8C` |
+| `359.9°` |    `3599` | `0E 0F` |
+
+Payload:
+
+| Offset | Size | Alan      | Tip    | Açıklama         |
+| -----: | ---: | --------- | ------ | ---------------- |
+|      0 |    2 | angle_x10 | uint16 | 0–3599 arası açı |
+
+Frame örneği, `goToAngle(90.0)`:
+
+```text
+A5 5A 01 01 00 03 03 00 02 03 84 7E 8F
+```
+
+Açılım:
+
+```text
+A5 5A     SYNC
+01        VERSION
+01        COMMAND
+00 03     SEQ = 3
+03        CMD_ID = GO_TO_ANGLE
+00 02     LEN = 2
+03 84     angle_x10 = 900 = 90.0°
+7E 8F     CRC16
+```
+
+Frame örneği, `goToAngle(270.0)`:
+
+```text
+A5 5A 01 01 00 04 03 00 02 0A 8C 8D 5E
+```
+
+## 9. ACK Payload Formatı
+
+Alıcı, başarılı işlenen her komuta ACK döner.
+
+ACK frame içinde `SEQ` ve `CMD_ID`, gelen komut ile aynı olmalıdır.
+
+| Offset | Size | Alan              | Tip    | Açıklama                        |
+| -----: | ---: | ----------------- | ------ | ------------------------------- |
+|      0 |    1 | status_code       | uint8  | `0x00` başarılı                 |
+|      1 |    2 | current_angle_x10 | uint16 | Mevcut açı                      |
+|      3 |    1 | rotating          | uint8  | `0x00` stopped, `0x01` rotating |
+
+ACK örneği, START_ROTATION başarılı:
+
+```text
+A5 5A 01 81 00 01 01 00 04 00 00 00 01 E1 A2
+```
+
+Açılım:
+
+```text
+A5 5A     SYNC
+01        VERSION
+81        ACK
+00 01     SEQ = 1
+01        CMD_ID = START_ROTATION
+00 04     LEN = 4
+00        status_code = OK
+00 00     current_angle_x10 = 0
+01        rotating = true
+E1 A2     CRC16
+```
+
+ACK örneği, GO_TO_ANGLE 90.0 başarılı:
+
+```text
+A5 5A 01 81 00 03 03 00 04 00 03 84 00 90 CA
+```
+
+Açılım:
+
+```text
+A5 5A     SYNC
+01        VERSION
+81        ACK
+00 03     SEQ = 3
+03        CMD_ID = GO_TO_ANGLE
+00 04     LEN = 4
+00        status_code = OK
+03 84     current_angle_x10 = 900 = 90.0°
+00        rotating = false
+90 CA     CRC16
+```
+
+## 10. NACK Payload Formatı
+
+Alıcı, hatalı mesajlarda NACK döner.
+
+| Offset | Size | Alan              | Tip    | Açıklama                        |
+| -----: | ---: | ----------------- | ------ | ------------------------------- |
+|      0 |    1 | error_code        | uint8  | Hata kodu                       |
+|      1 |    2 | current_angle_x10 | uint16 | Mevcut açı                      |
+|      3 |    1 | rotating          | uint8  | `0x00` stopped, `0x01` rotating |
+
+## 11. Error Code Değerleri
+
+| error_code | Ad               | Açıklama                |
+| ---------: | ---------------- | ----------------------- |
+|     `0x00` | OK               | Hata yok                |
+|     `0x01` | INVALID_SYNC     | Sync hatası             |
+|     `0x02` | INVALID_VERSION  | Versiyon desteklenmiyor |
+|     `0x03` | INVALID_MSG_TYPE | Mesaj tipi geçersiz     |
+|     `0x04` | INVALID_CMD      | Komut geçersiz          |
+|     `0x05` | INVALID_LEN      | Payload uzunluğu hatalı |
+|     `0x06` | INVALID_CRC      | CRC hatası              |
+|     `0x07` | INVALID_ANGLE    | Açı 0–3599 dışında      |
+
+## 12. STATUS Mesajı
+
+İstenirse uygulama periyodik olarak veya komut sonrası STATUS mesajı gönderebilir.
+
+| Offset | Size | Alan              | Tip    | Açıklama                        |
+| -----: | ---: | ----------------- | ------ | ------------------------------- |
+|      0 |    2 | current_angle_x10 | uint16 | Mevcut açı                      |
+|      2 |    1 | rotating          | uint8  | `0x00` stopped, `0x01` rotating |
+
+STATUS için:
+
+```text
+MSG_TYPE = 0x83
+CMD_ID   = 0x00
+LEN      = 0x0003
+```
+
+## 13. Geçerlilik Kuralları
+
+Alıcı aşağıdaki kontrolleri yapmalıdır:
+
+1. `SYNC_1 == 0xA5`
+2. `SYNC_2 == 0x5A`
+3. `VERSION == 0x01`
+4. `MSG_TYPE == 0x01` olmalı
+5. `CMD_ID` desteklenen komutlardan biri olmalı
+6. `LEN`, komut payload uzunluğu ile uyumlu olmalı
+7. CRC doğru olmalı
+8. `GO_TO_ANGLE` için `angle_x10 <= 3599` olmalı
+
+## 14. TCP Port / UDP Port Önerisi
+
+Varsayılan port:
+
+```text
+TCP: 50010
+UDP: 50010
+```
+
+## 15. Komut Özet Tablosu
+
+| Komut             | Hex Frame Örneği                         |
+| ----------------- | ---------------------------------------- |
+| START_ROTATION    | `A5 5A 01 01 00 01 01 00 00 4D 8B`       |
+| STOP_ROTATION     | `A5 5A 01 01 00 02 02 00 00 8F 07`       |
+| GO_TO_ANGLE 90.0  | `A5 5A 01 01 00 03 03 00 02 03 84 7E 8F` |
+| GO_TO_ANGLE 270.0 | `A5 5A 01 01 00 04 03 00 02 0A 8C 8D 5E` |
