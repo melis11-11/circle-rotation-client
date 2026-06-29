@@ -72,6 +72,7 @@ public class TcpCircleClient {
         }
     }
 
+    // Decides which command the user typed
     private static byte[] buildCommandFrame(String command) {
         if (command.equalsIgnoreCase("start")) {
             return buildFrame(CMD_START_ROTATION, new byte[0]);
@@ -113,6 +114,7 @@ public class TcpCircleClient {
         return null;
     }
 
+    // Creates the ICD frame
     private static byte[] buildFrame(int cmdId, byte[] payload) {
         int len = payload.length;
         int seq = sequenceNumber++;
