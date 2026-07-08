@@ -733,6 +733,8 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
         private final int port;
         private final CircleProtocolParser parser;
         private final CommandDispatcher dispatcher;
+        private InetAddress lastClientAddress;
+        private int lastClientPort;
 
         UdpProtocolServer(int port, CircleProtocolParser parser, CommandDispatcher dispatcher) {
             this.port = port;
@@ -745,11 +747,46 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
             byte[] buffer = new byte[2048];
 
             try (DatagramSocket socket = new DatagramSocket(port)) {
+
+                Thread statusThread = new Thread(() -> {
+                    try {
+                        while (!socket.isClosed()) {
+                            if (lastClientAddress != null && lastClientPort != 0) {
+                                byte[] statusFrame = ProtocolFrameBuilder.buildStatus(
+                                        dispatcher.controller.getCurrentAngleX10(),
+                                        dispatcher.controller.isRotating()
+                                );
+
+                                DatagramPacket statusPacket = new DatagramPacket(
+                                        statusFrame,
+                                        statusFrame.length,
+                                        lastClientAddress,
+                                        lastClientPort
+                                );
+
+                                socket.send(statusPacket);
+
+                                System.out.println("[UDP STATUS TX] " + toHex(statusFrame));
+                            }
+
+                            Thread.sleep(2000);
+                        }
+                    } catch (Exception e) {
+                        System.out.println("[UDP STATUS] stopped");
+                    }
+                });
+
+                statusThread.setDaemon(true);
+                statusThread.start();
+
                 System.out.println("[UDP] Listening on port " + port);
 
                 while (true) {
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
                     socket.receive(packet);
+
+                    lastClientAddress = packet.getAddress();
+                    lastClientPort = packet.getPort();
 
                     byte[] frame = Arrays.copyOf(packet.getData(), packet.getLength());
 
