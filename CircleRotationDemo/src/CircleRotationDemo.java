@@ -347,6 +347,7 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
         static final int MSG_TYPE_COMMAND = 0x01;
         static final int MSG_TYPE_ACK = 0x81;
         static final int MSG_TYPE_NACK = 0x82;
+        static final int MSG_TYPE_STATUS = 0x83;
 
         static final int CMD_NONE = 0x00;
         static final int CMD_START_ROTATION = 0x01;
@@ -486,7 +487,7 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
     }
 
     static final class CommandDispatcher {
-        private final RotationCommandController controller;
+        final RotationCommandController controller;
 
         CommandDispatcher(RotationCommandController controller) {
             this.controller = controller;
@@ -578,6 +579,16 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
 
             return out.toByteArray();
         }
+
+        static byte[] buildStatus(int currentAngleX10, boolean rotating) {
+            byte[] payload = new byte[] {
+                    (byte) ((currentAngleX10 >> 8) & 0xFF),
+                    (byte) (currentAngleX10 & 0xFF),
+                    (byte) (rotating ? 1 : 0)
+            };
+
+            return buildFrame(Protocol.MSG_TYPE_STATUS, 0, Protocol.CMD_NONE, payload);
+        }
     }
 
     static final class TcpProtocolServer implements Runnable {
@@ -613,6 +624,32 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
             System.out.println("[TCP] Client connected: " + socket.getRemoteSocketAddress());
 
             try (Socket s = socket; InputStream in = s.getInputStream(); OutputStream out = s.getOutputStream()) {
+
+                Thread statusThread = new Thread(() -> {
+                    try {
+                        while (!s.isClosed()) {
+                            byte[] statusFrame = ProtocolFrameBuilder.buildStatus(
+                                    dispatcher.controller.getCurrentAngleX10(),
+                                    dispatcher.controller.isRotating()
+                            );
+
+                            synchronized (out) {
+                                out.write(statusFrame);
+                                out.flush();
+                            }
+
+                            System.out.println("[TCP STATUS TX] " + toHex(statusFrame));
+
+                            Thread.sleep(2000);
+                        }
+                    } catch (Exception e) {
+                        System.out.println("[TCP STATUS] stopped");
+                    }
+                });
+
+                statusThread.setDaemon(true);
+                statusThread.start();
+
                 while (true) {
                     byte[] frame = readTcpFrame(in);
 
@@ -623,8 +660,10 @@ public class CircleRotationDemo extends JFrame implements RotationCommandControl
 
                     System.out.println("[TCP TX] " + toHex(response));
 
-                    out.write(response);
-                    out.flush();
+                    synchronized (out) {
+                        out.write(response);
+                        out.flush();
+                    }
                 }
             } catch (EOFException eof) {
                 System.out.println("[TCP] Client disconnected");

@@ -15,6 +15,7 @@ public class TcpCircleClient {
     private static final int MSG_TYPE_COMMAND = 0x01;
     private static final int MSG_TYPE_ACK = 0x81;
     private static final int MSG_TYPE_NACK = 0x82;
+    private static final int MSG_TYPE_STATUS = 0x83;
 
     private static final int CMD_START_ROTATION = 0x01;
     private static final int CMD_STOP_ROTATION = 0x02;
@@ -38,6 +39,23 @@ public class TcpCircleClient {
         ) {
             System.out.println("Connected to CircleRotationDemo on port " + SERVER_PORT);
 
+            Thread receiveThread = new Thread(() -> {
+                try {
+                    while (!socket.isClosed()) {
+                        byte[] response = readTcpFrame(input);
+
+                        System.out.println("\nRX: " + toHex(response));
+                        decodeResponse(response);
+                        System.out.print("> ");
+                    }
+                } catch (Exception e) {
+                    System.out.println("\nDisconnected from server.");
+                }
+            });
+
+            receiveThread.setDaemon(true);
+            receiveThread.start();
+
             while (true) {
                 System.out.print("> ");
                 String command = scanner.nextLine().trim();
@@ -59,10 +77,6 @@ public class TcpCircleClient {
                 output.write(frame);
                 output.flush();
 
-                byte[] response = readTcpFrame(input);
-
-                System.out.println("RX: " + toHex(response));
-                decodeResponse(response);
             }
 
         } catch (IOException e) {
@@ -212,35 +226,57 @@ public class TcpCircleClient {
         int cmdId = frame[6] & 0xFF;
         int len = readUInt16(frame, 7);
 
-        if (len != 4) {
-            System.out.println("Unexpected response length: " + len);
+        if (msgType == MSG_TYPE_STATUS) {
+            if (len != 3) {
+                System.out.println("Unexpected STATUS length: " + len);
+                return;
+            }
+
+            int currentAngleX10 = readUInt16(frame, 9);
+            int rotatingValue = frame[11] & 0xFF;
+
+            double currentAngle = currentAngleX10 / 10.0;
+            boolean rotating = rotatingValue == 1;
+
+            System.out.println("STATUS update");
+            System.out.println("  Current angle: " + currentAngle + "°");
+            System.out.println("  Rotating: " + rotating);
             return;
         }
 
-        int statusOrError = frame[9] & 0xFF;
-        int currentAngleX10 = readUInt16(frame, 10);
-        int rotatingValue = frame[12] & 0xFF;
+        if (msgType == MSG_TYPE_ACK || msgType == MSG_TYPE_NACK) {
+            if (len != 4) {
+                System.out.println("Unexpected ACK/NACK length: " + len);
+                return;
+            }
 
-        double currentAngle = currentAngleX10 / 10.0;
-        boolean rotating = rotatingValue == 1;
+            int statusOrError = frame[9] & 0xFF;
+            int currentAngleX10 = readUInt16(frame, 10);
+            int rotatingValue = frame[12] & 0xFF;
 
-        if (msgType == MSG_TYPE_ACK) {
-            System.out.println("ACK received");
-            System.out.println("  Sequence: " + seq);
-            System.out.println("  Command: " + commandName(cmdId));
-            System.out.println("  Status: OK");
-            System.out.println("  Current angle: " + currentAngle + "°");
-            System.out.println("  Rotating: " + rotating);
-        } else if (msgType == MSG_TYPE_NACK) {
-            System.out.println("NACK received");
-            System.out.println("  Sequence: " + seq);
-            System.out.println("  Command: " + commandName(cmdId));
-            System.out.println("  Error code: " + statusOrError);
-            System.out.println("  Current angle: " + currentAngle + "°");
-            System.out.println("  Rotating: " + rotating);
-        } else {
-            System.out.println("Unknown response type: 0x" + Integer.toHexString(msgType));
+            double currentAngle = currentAngleX10 / 10.0;
+            boolean rotating = rotatingValue == 1;
+
+            if (msgType == MSG_TYPE_ACK) {
+                System.out.println("ACK received");
+                System.out.println("  Sequence: " + seq);
+                System.out.println("  Command: " + commandName(cmdId));
+                System.out.println("  Status: OK");
+                System.out.println("  Current angle: " + currentAngle + "°");
+                System.out.println("  Rotating: " + rotating);
+            } else {
+                System.out.println("NACK received");
+                System.out.println("  Sequence: " + seq);
+                System.out.println("  Command: " + commandName(cmdId));
+                System.out.println("  Error code: " + statusOrError);
+                System.out.println("  Current angle: " + currentAngle + "°");
+                System.out.println("  Rotating: " + rotating);
+            }
+
+            return;
         }
+
+        System.out.println("Unknown response type: 0x" + Integer.toHexString(msgType));
     }
 
     private static String commandName(int cmdId) {
