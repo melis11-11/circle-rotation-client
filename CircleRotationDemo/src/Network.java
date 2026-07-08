@@ -2,7 +2,8 @@ import java.util.Scanner;
 
 public abstract class Network {
 
-    protected boolean running = false;
+    protected volatile boolean running = false;
+    protected volatile  boolean connected = false;
     protected Thread receiveThread;
 
     public abstract void connect();
@@ -28,6 +29,7 @@ public abstract class Network {
 
             if (message.equalsIgnoreCase("exit")) {
                 sendMessage("exit");
+                running = false;
                 disconnect();
                 System.out.println(getClosedMessage());
                 break;
