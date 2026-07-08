@@ -64,15 +64,21 @@ public class TcpClient extends Network {
             String message;
 
             while (connected && (message = input.readLine()) != null) {
+
+                if (message.equalsIgnoreCase("exit")) {
+                    System.out.println("Server disconnected.");
+                    running = false;
+                    disconnect();
+                    break;
+                }
+
                 System.out.println("Server: " + message);
             }
 
-            System.out.println("Server disconnected.");
-            disconnect();
-
         } catch (IOException e) {
-            if (connected)
-            System.out.println("Connection lost.");
+            if (connected) {
+                System.out.println("Connection lost.");
+            }
 
             disconnect();
         }

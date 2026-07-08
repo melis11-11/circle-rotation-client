@@ -34,6 +34,7 @@ public abstract class Network {
                 System.out.println(getClosedMessage());
                 break;
             }
+
             sendMessage(message);
         }
 

@@ -68,16 +68,22 @@ public class TcpServer extends Network {
             String message;
 
             while (connected && (message = input.readLine()) != null) {
+
+                if (message.equalsIgnoreCase("exit")) {
+                    System.out.println("Client disconnected.");
+                    connected = false;
+                    disconnect();
+                    break;
+                }
+
                 System.out.println("Client: " + message);
             }
-
-            System.out.println("Client disconnected.");
-            disconnect();
 
         } catch (IOException e) {
             if (connected) {
                 System.out.println("Receive error: " + e.getMessage());
             }
+
             disconnect();
         }
     }
