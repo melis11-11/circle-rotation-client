@@ -12,14 +12,15 @@ public class TcpClient extends Network {
 
     public static void main(String[] args) {
         TcpClient client = new TcpClient();
+        client.running = true;
         client.startConnectThread();
         client.startConsoleInput();
     }
 
     public void startConnectThread() {
         Thread connectThread = new Thread(() -> {
-            while (true) {
-                if (!running) {
+            while (running) {
+                if (!connected) {
                     connect();
                 }
 
@@ -45,7 +46,7 @@ public class TcpClient extends Network {
 
             output = new PrintWriter(socket.getOutputStream(), true);
 
-            running = true;
+            connected = true;
 
             System.out.println("Connected to server.");
 
@@ -53,7 +54,7 @@ public class TcpClient extends Network {
 
         } catch (IOException e) {
             System.out.println("Server not available. Will try again...");
-            running = false;
+            connected = false;
         }
     }
 
@@ -62,22 +63,30 @@ public class TcpClient extends Network {
         try {
             String message;
 
-            while (running && (message = input.readLine()) != null) {
+            while (connected && (message = input.readLine()) != null) {
+
+                if (message.equalsIgnoreCase("exit")) {
+                    System.out.println("Server disconnected.");
+                    running = false;
+                    disconnect();
+                    break;
+                }
+
                 System.out.println("Server: " + message);
             }
 
-            System.out.println("Server disconnected.");
-            disconnect();
-
         } catch (IOException e) {
-            System.out.println("Connection lost.");
+            if (connected) {
+                System.out.println("Connection lost.");
+            }
+
             disconnect();
         }
     }
 
     @Override
     public void sendMessage(String message) {
-        if (running && output != null) {
+        if (connected && output != null) {
             output.println(message);
         } else {
             System.out.println("Not connected. Message not sent.");
@@ -86,7 +95,7 @@ public class TcpClient extends Network {
 
     @Override
     public void disconnect() {
-        running = false;
+        connected = false;
 
         try {
             if (input != null) {
